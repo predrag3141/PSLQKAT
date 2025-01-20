@@ -3,38 +3,75 @@ package main
 // Copyright (c) 2025 Colin McRae
 
 import (
-	"encoding/json"
 	"fmt"
 	"github.com/predrag3141/IPSLQ/bignumber"
 	"github.com/predrag3141/IPSLQ/knownanswertest"
 	"github.com/predrag3141/IPSLQ/pslqops"
 	"os"
-	"time"
+	"strconv"
 )
 
 const (
-	minDimension                    = 10
-	dimensionIncr                   = 10
-	maxDimension                    = 40 // 100
-	numTests                        = 10
 	relationElementRange            = 5
 	randomRelationProbabilityThresh = 0.001
-	maxIterations                   = 20000
+	maxIterations                   = 50000
 	bigNumberPrecision              = 1500
+	minDimensionName                = "min_dim"
+	dimensionIncrName               = "dim_incr"
+	maxDimensionName                = "max_dim"
+	numTestsName                    = "num_tests"
 )
 
 func main() {
-	if len(os.Args) != 2 {
-		fmt.Println("Usage: go run main.go base_directory")
+	// Check argument count
+	if len(os.Args) != 6 {
+		fmt.Printf(
+			"Usage: go run main.go base_directory %s %s %s %s\n",
+			minDimensionName, dimensionIncrName, maxDimensionName, numTestsName,
+		)
 		return
 	}
-	err := bignumber.Init(bigNumberPrecision)
+
+	// Parse arguments
+	var err error
+	var minDimensionAsInt, dimensionIncrAsInt, maxDimensionAsInt, numTestsAsInt int
+	baseDirectory := os.Args[1]
+	minDimensionAsStr := os.Args[2]
+	dimensionIncrAsStr := os.Args[3]
+	maxDimensionAsStr := os.Args[4]
+	numTestsAsStr := os.Args[5]
+	minDimensionAsInt, err = strconv.Atoi(minDimensionAsStr)
+	if err != nil {
+		fmt.Printf("Could not convert %s = %s to integer", minDimensionName, minDimensionAsStr)
+		return
+	}
+	dimensionIncrAsInt, err = strconv.Atoi(dimensionIncrAsStr)
+	if err != nil {
+		fmt.Printf("Could not convert %s = %s to integer", dimensionIncrName, dimensionIncrAsStr)
+		return
+	}
+	maxDimensionAsInt, err = strconv.Atoi(maxDimensionAsStr)
+	if err != nil {
+		fmt.Printf("Could not convert %s = %s to integer", maxDimensionName, maxDimensionAsStr)
+		return
+	}
+	numTestsAsInt, err = strconv.Atoi(numTestsAsStr)
+	if err != nil {
+		fmt.Printf("Could not convert %s = %s to integer", numTestsName, numTestsAsStr)
+		return
+	}
+
+	// Initialize big number precision
+	err = bignumber.Init(bigNumberPrecision)
 	if err != nil {
 		fmt.Printf("Could not initialize bignumber: %q", err.Error())
+		return
 	}
-	for testNbr := 0; testNbr < numTests; testNbr++ {
-		for dim := minDimension; dim <= maxDimension; dim += dimensionIncr {
-			err = oneTest(testNbr, dim, os.Args[1], "main")
+
+	// Run tests
+	for testNbr := 0; testNbr < numTestsAsInt; testNbr++ {
+		for dim := minDimensionAsInt; dim <= maxDimensionAsInt; dim += dimensionIncrAsInt {
+			err = oneTest(dim, baseDirectory, "main")
 			if err != nil {
 				fmt.Printf("%q", err.Error())
 				return
@@ -43,17 +80,10 @@ func main() {
 	}
 }
 
-func oneTest(testNbr, dim int, baseDirectory, caller string) error {
+func oneTest(dim int, baseDirectory, caller string) error {
 	// Initializations
 	caller = fmt.Sprintf("%s-oneTest", caller)
-
-	// Open the results file
-	fileName := fmt.Sprintf(
-		"%s/%s/test_%d-dim_%d",
-		baseDirectory, time.Now().Format("2006_01_02"), testNbr, dim,
-	)
-	file, err := os.OpenFile(fileName, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	defer file.Close()
+	katLog, err := knownanswertest.NewKATLog(baseDirectory, dim, 100, 25)
 
 	// Create the PSLQ context
 	var pc *knownanswertest.PSLQContext
@@ -73,11 +103,13 @@ func oneTest(testNbr, dim int, baseDirectory, caller string) error {
 			fmt.Printf("Could not perform iteration %d: %q", numIterations, err.Error())
 			return fmt.Errorf("err")
 		}
-		err = pc.UpdateSolutions(
-			state, numIterations, terminated || (numIterations == maxIterations-1),
-		)
+		err = pc.Update(state, terminated || (numIterations == maxIterations-1))
 		if err != nil {
-			return err
+			return fmt.Errorf("%s: could not update the PSLQ context: %q", caller, err.Error())
+		}
+		err = katLog.ReportProgress(pc)
+		if err != nil {
+			return fmt.Errorf("%s: could not report progress: %q", caller, err.Error())
 		}
 		if terminated {
 			break
@@ -85,15 +117,7 @@ func oneTest(testNbr, dim int, baseDirectory, caller string) error {
 	}
 
 	// Write results
-	var resultsAsByteArray []byte
-	resultsAsByteArray, err = json.Marshal(pc)
-	err = writeResults(file, string(resultsAsByteArray), caller)
-	if err != nil {
-		return fmt.Errorf(
-			"%s: could not write results to %s: %q",
-			caller, fileName, err.Error(),
-		)
-	}
+	err = katLog.ReportResults(pc)
 	return nil
 }
 
