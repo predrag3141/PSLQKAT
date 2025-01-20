@@ -1,0 +1,6 @@
+# github.com/predrag3141/IPSLQ v1.0.0
+## explicit; go 1.19
+github.com/predrag3141/IPSLQ/bigmatrix
+github.com/predrag3141/IPSLQ/bignumber
+github.com/predrag3141/IPSLQ/knownanswertest
+github.com/predrag3141/IPSLQ/pslqops
